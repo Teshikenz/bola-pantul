@@ -77,9 +77,21 @@
             background: #74b9ff;
             transform: scale(1.05);
         }
+
+        #bgMusic {
+            position: absolute;
+            left: -9999px;
+            opacity: 0;
+        }
     </style>
 </head>
 <body>
+
+    <audio id="bgMusic" loop>
+        <source src="machiavellian-nightmare-electronic-dystopia-ai-robot-machine-139385.mp3" type="audio/mpeg">
+         Browser Anda tidak mendukung audio.
+    </audio>
+
     <div class="hud">
         <div>Waktu: <span id="timer">30</span>s</div>
         <div>Poin: <span id="score">0</span></div>
@@ -99,7 +111,10 @@
         let timeLeft = 30;
         let gameActive = false;
         let highscore = localStorage.getItem('highscore') || 0;
+        let firstClick = false;
+        const bgMusic = document.getElementById('bgMusic');
         const balls = [];
+        const MAX_BALLS = 30; // Batasi jumlah bola maksimal
         
         const scoreElement = document.getElementById('score');
         const timerElement = document.getElementById('timer');
@@ -108,60 +123,70 @@
         const finalScoreElement = document.getElementById('finalScore');
 
         function createBall() {
+            if(balls.length >= MAX_BALLS) return null; // Jangan buat bola baru jika sudah mencapai batas
+            
             const ball = document.createElement('div');
             ball.className = 'ball';
             
-            // Ukuran acak antara 20-50px
             const size = Math.random() * 30 + 20;
             ball.style.width = `${size}px`;
             ball.style.height = `${size}px`;
             
-            // Warna acak (15% kemungkinan menjadi bola merah jebakan)
             const isTrap = Math.random() < 0.15;
             const color = isTrap ? '#ff0000' : `hsl(${Math.random() * 360}, 70%, 60%)`;
             
             ball.style.background = `radial-gradient(circle at 30% 30%, #ffffff, ${color})`;
             ball.style.boxShadow = `0 0 20px ${color}`;
 
-            // Posisi awal acak
             const container = document.getElementById('gameContainer');
             const radius = container.offsetWidth/2 - size/2;
             const angle = Math.random() * Math.PI * 2;
-            ball.style.left = `${container.offsetWidth/2 + Math.cos(angle) * radius * Math.random()}px`;
-            ball.style.top = `${container.offsetHeight/2 + Math.sin(angle) * radius * Math.random()}px`;
-
-            // Kecepatan acak
-            const speed = (50/size) * 2; // Bola kecil bergerak lebih cepat
-            const dx = (Math.random() - 0.5) * speed;
-            const dy = (Math.random() - 0.5) * speed;
-
-            // Event listener untuk klik
-            ball.onclick = () => {
-                if(!gameActive) return;
-                if(isTrap) {
-                    score = Math.max(0, score - 50);
-                } else {
-                    score += Math.round(1000/size); // Semakin kecil bola, poin semakin banyak
-                }
-                scoreElement.textContent = score;
-                container.removeChild(ball);
-                balls.splice(balls.indexOf(ballData), 1);
-            };
-
-            container.appendChild(ball);
             
             const ballData = {
                 element: ball,
-                x: parseFloat(ball.style.left),
-                y: parseFloat(ball.style.top),
-                dx,
-                dy,
+                x: container.offsetWidth/2 + Math.cos(angle) * radius * Math.random(),
+                y: container.offsetHeight/2 + Math.sin(angle) * radius * Math.random(),
+                dx: (Math.random() - 0.5) * (50/size) * 2,
+                dy: (Math.random() - 0.5) * (50/size) * 2,
                 size,
-                isTrap
+                isTrap,
+                lifetime: Math.random() * 3 + 2, // Waktu hidup acak 2-5 detik
+                born: Date.now()
             };
-            
+
+            ball.style.left = `${ballData.x}px`;
+            ball.style.top = `${ballData.y}px`;
+
+            // Event handler dengan closure yang benar
+            ball.onclick = () => handleBallClick(ballData);
+
+            container.appendChild(ball);
             balls.push(ballData);
             return ballData;
+        }
+
+        function handleBallClick(ballData) {
+            if(!gameActive) return;
+
+            if(!firstClick) {
+                bgMusic.play();
+                firstClick = true;
+            }
+            
+            if(ballData.isTrap) {
+                score = Math.max(0, score - 50);
+            } else {
+                score += Math.round(1000/ballData.size);
+            }
+            
+            scoreElement.textContent = score;
+            removeBall(ballData);
+        }
+
+        function removeBall(ballData) {
+            ballData.element.remove();
+            const index = balls.indexOf(ballData);
+            if(index > -1) balls.splice(index, 1);
         }
 
         function updatePositions() {
@@ -171,22 +196,22 @@
             const radius = container.offsetWidth/2;
 
             balls.forEach(ball => {
-                // Update posisi
-                ball.x += ball.dx;
-                ball.y += ball.dy;
-
-                // Deteksi tumbukan dengan dinding
-                const distanceFromCenter = Math.sqrt(
-                    Math.pow(ball.x - centerX, 2) + Math.pow(ball.y - centerY, 2)
-                );
+                // Update fisika yang lebih smooth
+                const distanceFromCenter = Math.hypot(ball.x - centerX, ball.y - centerY);
+                const maxDistance = radius - ball.size/2;
                 
-                if(distanceFromCenter > radius - ball.size/2) {
-                    const angle = Math.atan2(ball.y - centerY, ball.x - centerX);
-                    ball.dx = -ball.dx * 0.9;
-                    ball.dy = -ball.dy * 0.9;
+                if(distanceFromCenter > maxDistance) {
+                    // Hitung pantulan menggunakan vektor normal
+                    const normalX = (ball.x - centerX) / distanceFromCenter;
+                    const normalY = (ball.y - centerY) / distanceFromCenter;
+                    
+                    const dotProduct = ball.dx * normalX + ball.dy * normalY;
+                    ball.dx = (ball.dx - 2 * dotProduct * normalX) * 0.9;
+                    ball.dy = (ball.dy - 2 * dotProduct * normalY) * 0.9;
                 }
 
-                // Update posisi element
+                ball.x += ball.dx;
+                ball.y += ball.dy;
                 ball.element.style.left = `${ball.x}px`;
                 ball.element.style.top = `${ball.y}px`;
             });
@@ -197,16 +222,27 @@
             
             updatePositions();
             
-            // Spawn bola baru secara acak
-            if(Math.random() < 0.1) {
+            // Hapus bola yang sudah melewati lifetime
+            balls.forEach(ball => {
+                if(Date.now() - ball.born > ball.lifetime * 1000) {
+                    removeBall(ball);
+                }
+            });
+
+            // Spawn bola baru dengan probabilitas lebih rendah
+            if(Math.random() < 0.08 && balls.length < MAX_BALLS) {
                 createBall();
             }
             
             requestAnimationFrame(gameLoop);
         }
 
+
         function startGame() {
             // Reset game state
+            bgMusic.pause();
+            bgMusic.currentTime = 0;
+            firstClick = false;
             score = 0;
             timeLeft = 30;
             gameActive = true;
